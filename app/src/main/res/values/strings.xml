@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Looma</string>
+    <string name="start_recording">Start Recording</string>
+    <string name="stop_recording">Stop Recording</string>
+    <string name="recording">Recording…</string>
+    <string name="idle">Ready</string>
+    <string name="resolution">Resolution</string>
+    <string name="frame_rate">Frame Rate</string>
+    <string name="auto">Auto</string>
+    <string name="storage_path">Save to</string>
+    <string name="root_required">Root access is required for screen recording</string>
+    <string name="no_root">❌ Root access denied or unavailable</string>
+    <string name="root_ok">✓ Root granted</string>
+    <string name="no_recording">No recordings yet</string>
+    <string name="bitrate">Bitrate</string>
+    <string name="mbps">%d Mbps</string>
+    <string name="fps">%d fps</string>
+</resources>
