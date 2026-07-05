@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace = "com.voxyn.looma"
-    compileSdk = 36
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.voxyn.looma"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
     }
@@ -23,8 +23,6 @@ android {
             storePassword = System.getenv("KEYSTORE_PASSWORD")
             keyAlias = System.getenv("KEY_ALIAS")
             keyPassword = System.getenv("KEY_PASSWORD")
-            // Only enable if all fields are populated
-            storeFile?.let { if (storePassword != null && keyAlias != null && keyPassword != null) enableV1Signing = true; enableV2Signing = true }
         }
     }
 
@@ -35,7 +33,6 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // Wire up signing if available
             val relCfg = signingConfigs.findByName("release")
             if (relCfg?.storeFile?.exists() == true &&
                 relCfg.storePassword != null &&
@@ -71,27 +68,24 @@ android {
 }
 
 dependencies {
-    // Miuix – HyperOS/MIUI style Compose components
-    // https://github.com/compose-miuix-ui/miuix
-    val miuixVersion = "0.9.3"
-    implementation("top.yukonga.miuix.kmp:miuix-ui:$miuixVersion")
-    implementation("top.yukonga.miuix.kmp:miuix-preference:$miuixVersion")
-    implementation("top.yukonga.miuix.kmp:miuix-icons:$miuixVersion")
-    implementation("top.yukonga.miuix.kmp:miuix-squircle:$miuixVersion")
+    val composeBom = platform("androidx.compose:compose-bom:2024.11.00")
+    implementation(composeBom)
 
-    // AndroidX Core & Lifecycle
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.activity:activity-compose:1.9.3")
 
-    // Compose BOM
-    val composeBom = platform("androidx.compose:compose-bom:2025.03.01")
-    implementation(composeBom)
+    // Compose
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.animation:animation")
+
+    // Lifecycle
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")

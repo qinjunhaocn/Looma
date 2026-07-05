@@ -1,16 +1,26 @@
 package com.voxyn.looma.ui.theme
 
+import android.os.Build
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
-import top.yukonga.miuix.kmp.theme.ColorSchemeMode
-import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.theme.ThemeController
+import androidx.compose.ui.platform.LocalContext
 
 @Composable
 fun LoomaTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
-    val controller = androidx.compose.runtime.remember {
-        ThemeController(colorSchemeMode = ColorSchemeMode.Dark)
+    val colorScheme = if (darkTheme) {
+        dynamicDarkColorScheme(LocalContext.current)
+    } else {
+        dynamicLightColorScheme(LocalContext.current)
     }
-    MiuixTheme(controller = controller, content = content)
+
+    MaterialTheme(
+        colorScheme = colorScheme,
+        content = content,
+    )
 }
