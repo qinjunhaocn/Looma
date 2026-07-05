@@ -6,18 +6,19 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Utility to run shell commands via root (su).
+ * Root shell screen recording — literally just your shell script ported.
  */
 object RootShell {
 
     private const val TAG = "RootShell"
+    private const val PID_FILE = "/sdcard/SR/.looma_pid"
+    private const val SCRIPT_FILE = "/sdcard/SR/.looma_cmd.sh"
 
-    /** Check whether the device has root access. */
     suspend fun hasRoot(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val proc = Runtime.getRuntime().exec(arrayOf("su", "-c", "id -u"))
-            val uid = proc.inputStream.bufferedReader().readText().trim()
-            proc.waitFor()
+            val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "id -u"))
+            val uid = p.inputStream.bufferedReader().readText().trim()
+            p.waitFor()
             uid == "0"
         } catch (e: Exception) {
             Log.e(TAG, "Root check failed", e)
@@ -25,22 +26,19 @@ object RootShell {
         }
     }
 
-    /** Auto-detect display resolution via `wm size` */
     suspend fun detectResolution(): String = withContext(Dispatchers.IO) {
         try {
-            val proc = Runtime.getRuntime().exec(arrayOf("su", "-c", "wm size"))
-            val out = proc.inputStream.bufferedReader().readText().trim()
-            proc.waitFor()
+            val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "wm size"))
+            val out = p.inputStream.bufferedReader().readText().trim()
+            p.waitFor()
             Regex("(\\d+x\\d+)").find(out)?.value ?: "1920x1080"
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             "1920x1080"
         }
     }
 
     /**
-     * Start screenrecord via root.
-     * Writes the PID to a known file so we can SIGINT it later.
-     * Returns the PID file path.
+     * Write & run the shell script, return PID.
      */
     suspend fun startRecord(
         outputPath: String,
@@ -48,84 +46,77 @@ object RootShell {
         fps: Int,
         bitRate: Int,
     ): String = withContext(Dispatchers.IO) {
-        val pidFile = "/sdcard/SR/.looma_pid"
-        val logFile = "/sdcard/SR/.looma_log"
-
-        // Build args
-        val args = buildString {
-            append("screenrecord")
-            append(" --size \"$resolution\"")
-            append(" --bit-rate $bitRate")
-            append(" --time-limit 1800")
-            if (fps > 0) append(" --set-fps $fps")
-            append(" \"$outputPath\"")
-        }
-
-        // Write a shell script that runs screenrecord and saves its PID,
-        // then run that script via su
+        // 1. Write the exact same shell script the user wrote
+        //    but with dynamic params and PID saved to a known file.
         val script = buildString {
             appendLine("#!/system/bin/sh")
-            appendLine("$args &")
-            appendLine("echo \\$! > $pidFile")
+            appendLine("mkdir -p \"${File(outputPath).parent}\"")
+            append("screenrecord --size $resolution --bit-rate $bitRate --time-limit 1800")
+            if (fps > 0) append(" --set-fps $fps")
+            appendLine(" \"$outputPath\" &")
+            appendLine("echo \$! > $PID_FILE")
             appendLine("wait")
         }
+        File(SCRIPT_FILE).writeText(script)
 
-        val scriptFile = "/sdcard/SR/.looma_cmd.sh"
-        File(scriptFile).writeText(script)
+        // 2. Run it via su
+        Log.d(TAG, "Starting: su -c sh $SCRIPT_FILE")
+        Runtime.getRuntime().exec(arrayOf("su", "-c", "sh $SCRIPT_FILE"))
+            
 
-        // Make it executable and run it via su
-        val proc = Runtime.getRuntime().exec(arrayOf("su", "-c", "sh $scriptFile > $logFile 2>&1 &"))
-
-        // Read PID from file with retries
-        var pid = ""
-        for (i in 1..10) {
-            kotlinx.coroutines.delay(200)
-            val pf = File(pidFile)
-            if (pf.exists()) {
-                pid = pf.readText().trim()
-                if (pid.isNotEmpty()) break
+        // 3. Wait for PID file
+        for (i in 1..20) {
+            kotlinx.coroutines.delay(250)
+            val f = File(PID_FILE)
+            if (f.exists()) {
+                val pid = f.readText().trim()
+                if (pid.isNotEmpty()) {
+                    Log.d(TAG, "Got PID=$pid")
+                    return@withContext pid
+                }
             }
         }
-
-        Log.d(TAG, "screenrecord PID: $pid")
-        pid
+        Log.w(TAG, "PID file not found after 5s")
+        ""
     }
 
-    /** Stop recording by sending SIGINT. */
+    /**
+     * Stop by sending SIGINT to the recorded PID.
+     */
     suspend fun stopRecord(pid: String?) {
         withContext(Dispatchers.IO) {
-            // Try by PID first
+            // 1. Try by PID
             if (!pid.isNullOrEmpty()) {
-                Log.d(TAG, "Killing PID $pid")
+                Log.d(TAG, "kill -INT $pid")
                 Runtime.getRuntime().exec(arrayOf("su", "-c", "kill -INT $pid")).waitFor()
             }
-            // Also try pkill / killall as fallback
-            Runtime.getRuntime().exec(arrayOf(
-                "su", "-c",
-                "killall -INT screenrecord 2>/dev/null || pkill -INT screenrecord 2>/dev/null || kill -INT \$(pgrep -x screenrecord) 2>/dev/null || true"
-            )).waitFor()
-
-            // Cleanup temp files
+            // 2. Try reading PID file as fallback
             try {
-                File("/sdcard/SR/.looma_pid").delete()
-                File("/sdcard/SR/.looma_cmd.sh").delete()
+                val pidFromFile = File(PID_FILE).readText().trim()
+                if (pidFromFile.isNotEmpty()) {
+                    Log.d(TAG, "kill -INT $pidFromFile (from file)")
+                    Runtime.getRuntime().exec(arrayOf("su", "-c", "kill -INT $pidFromFile")).waitFor()
+                }
             } catch (_: Exception) {}
+
+            // 3. Nuke any remaining screenrecord just in case
+            Runtime.getRuntime().exec(arrayOf("su", "-c", "pkill -INT screenrecord 2>/dev/null; killall -INT screenrecord 2>/dev/null; true")).waitFor()
+
+            // 4. Cleanup
+            try { File(PID_FILE).delete() } catch (_: Exception) {}
+            try { File(SCRIPT_FILE).delete() } catch (_: Exception) {}
         }
     }
 
-    /** Get file size in human-readable form */
     suspend fun fileSize(filePath: String): String = withContext(Dispatchers.IO) {
         try {
-            val proc = Runtime.getRuntime().exec(arrayOf("su", "-c", "du -h \"$filePath\""))
-            val out = proc.inputStream.bufferedReader().readText().trim()
-            proc.waitFor()
+            val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "du -h \"$filePath\""))
+            val out = p.inputStream.bufferedReader().readText().trim()
+            p.waitFor()
             out.split("\t").firstOrNull() ?: ""
-        } catch (e: Exception) {
-            ""
-        }
+        } catch (_: Exception) { "" }
     }
 
-    /** List recordings sorted by newest first */
     suspend fun listRecordings(dir: String): List<File> = withContext(Dispatchers.IO) {
         val d = File(dir)
         if (!d.exists()) return@withContext emptyList()
@@ -134,9 +125,7 @@ object RootShell {
             ?.toList() ?: emptyList()
     }
 
-    /** Ensure directory exists */
     suspend fun ensureDir(dir: String) = withContext(Dispatchers.IO) {
         Runtime.getRuntime().exec(arrayOf("su", "-c", "mkdir -p \"$dir\"")).waitFor()
-        Runtime.getRuntime().exec(arrayOf("su", "-c", "chmod 777 \"$dir\"")).waitFor()
     }
 }
