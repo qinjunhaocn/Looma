@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.voxyn.looma.RecordPrefs
 import com.voxyn.looma.RecordState
 import com.voxyn.looma.RootShell
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -97,16 +98,24 @@ class RecordViewModel : ViewModel() {
             RootShell.stopRecord(currentPid)
             currentPid = null
 
-            kotlinx.coroutines.delay(1500) // wait for file flush
+            // Wait for screenrecord to finalize MP4
+            delay(2000)
 
             val state = _recordState.value
-            val size = state.currentFile?.let {
-                RootShell.fileSize(it.absolutePath)
-            } ?: ""
-
-            _recordState.update {
-                it.copy(isRecording = false, currentSize = size)
+            val file = state.currentFile
+            val size = if (file != null && file.exists()) {
+                RootShell.fileSize(file.absolutePath)
+            } else {
+                // Try to find the most recent file in output dir
+                val files = RootShell.listRecordings(_prefs.value.outputDir)
+                if (files.isNotEmpty()) {
+                    val latest = files.first()
+                    _recordState.update { it.copy(currentFile = latest) }
+                    RootShell.fileSize(latest.absolutePath)
+                } else ""
             }
+
+            _recordState.update { it.copy(isRecording = false, currentSize = size) }
 
             refreshRecordings()
         }
